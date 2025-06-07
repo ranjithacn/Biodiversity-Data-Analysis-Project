@@ -1,0 +1,357 @@
+---
+title: "Data Analysis and Statistics"
+author: "2212188"
+date: "2023-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+setwd("C:/Users/Rupesh/OneDrive - University of Essex/Desktop/ranjitha")
+if(!is.null(dev.list())) dev.off()  # clear out the past 
+rm(list = ls())
+cat("\014")
+
+library(dplyr)
+library(ggplot2)
+library(tidyr) # for spliting on the period see below
+library(moments) # for calculating moments for skewness etc.
+library(reshape2)
+par(mfrow=c(1, 1))
+
+dataset <-  read.csv("proportional_species_richness_V3.csv") # you use V2 or V3
+# View("proportional_species_richness_V3.csv")
+dataset$period <- as.factor(dataset$period) # must set categorical vars
+dataset$dominantLandClass <- as.factor(dataset$dominantLandClass)
+names(dataset)
+
+# count incidents (both periods) for each land classification for later selection
+dataset %>%
+  group_by(dominantLandClass)%>%
+  count()%>%
+  arrange(dominantLandClass)%>%
+  print(n=45)
+
+#grepl() function, which returns a logical vector of the same length as Location
+dataset<- dataset %>% 
+  filter(grepl("TM",Location))
+
+# select 7 randomly chosen predictors to form the trial eco_stat
+# note that you must keep to your allocated 7 (see the Moodle spreadsheet)
+all <- c(2:12)
+eco_selected <- sample(all,size=7, replace = FALSE)
+eco_selected_11 <- c("Bees","Bird","Bryophytes", "Butterflies", "Carabids","Hoverflies","Macromoths")
+eco_selected <- c(11,5,2,10,7,6,4)   # a particular troublesome case
+eco_not_selected <- all[!(all%in%eco_selected)]
+eco_names <- names(dataset[,2:12])
+eco_selected_names <- names(dataset)[eco_selected]
+eco_selected_names
+
+# calculate the bio div measure over 7 taxinomic groups
+mean_selected <- rowMeans(dataset[,eco_selected],na.rm=TRUE) # mean the 7 columns 
+sum(is.na(mean_selected)) # check that there are no NAs in mean_selected
+
+# add in the biodiversity measure which is the mean over 7 taxonomic groups
+dataset_MA334 <- dataset %>%
+  mutate(eco_status_7=mean_selected)
+names(dataset_MA334)
+
+# the DATA EXPLORATION phase (only some suggested approaches)
+
+# you could split the data by period and compare these stats before and after 
+table <- data.frame()
+for(i in eco_selected){
+  table <- rbind(table,
+                 c(eco_names[i-1],
+                   round(mean(dataset_MA334[,i],na.rm = TRUE),digits = 2),
+                   round(sd(dataset_MA334[,i],na.rm = TRUE),digits = 2),
+                   round(skewness(dataset_MA334[,i],na.rm = TRUE),digits = 2)
+                 ))}
+colnames(table) <- c("taxi_group","mean","sd","skewness")
+table %>% 
+  arrange(sd,skewness) # something more could be done here 
+
+# extend data exploration; with correlations between continuous variables
+names(dataset_MA334)
+
+cont_vars <- dataset_MA334 %>%
+  select(c(eco_selected,13,14)) # includes easting and northing 
+names(cont_vars)
+cormat <- round(x = cor(cont_vars,use="pairwise.complete.obs"), digits = 2)
+
+# melt the correlation matrix
+melt(cormat)%>%mutate(R2 = value^2)%>%arrange(value)
+melt(cormat)%>%mutate(R2 = value^2)%>%arrange(Var1,value)
+
+
+# PLOTING CORRELATION matrix DATA EXPLORATION
+DE_Correlation_Matrix <- plot(cont_vars$Northing~cont_vars$Macromoths) # a map appears !!!
+# now use the northings and Macromoths (these may be better used as predictors )
+
+DE_Correlation <- plot(dataset_MA334$eco_status_7~dataset_MA334$Macromoths)
+cor(dataset_MA334$eco_status_7,dataset_MA334$Macromoths)
+
+
+#HYPOTHESIS TEST
+# names(dataset_MA334)
+dataset_MA334_period <- dataset_MA334 %>% 
+  select(Location,period,eco_status_7)
+dataset_MA334_split <- dataset_MA334_period %>% 
+  pivot_wider(names_from =period,values_from=eco_status_7)
+dataset_MA334_split <- dataset_MA334_split %>% 
+  mutate(BD7_change=Y00-Y70)
+head(dataset_MA334_split)
+hist(dataset_MA334_split$BD7_change)  # the distribution of the BD7 change 
+
+BD7_change <- dataset_MA334_split%>%pull(BD7_change)
+t.test(BD7_change,mu=0)  # t test with H0: mu=0
+
+# comparing the two distributions of bio div based on 7 and 11 taxonomic groups 
+par(mfrow=c(1, 1))  # divide graph area in 1 columns
+
+# # comparing the two distributions of bio div based on 7 and 11 taxonomic groups
+
+#both cdfs together  and do a kolmogorov test H0: distributions are the same
+BD7_cdf <- ecdf(dataset_MA334$eco_status_7)
+BD11_cdf <- ecdf(dataset_MA334$ecologicalStatus)
+plot(BD11_cdf,col="red") #graph
+lines(BD7_cdf,col="green") #graph
+ks.test(dataset_MA334$eco_status_7,dataset_MA334$ecologicalStatus)
+
+
+# Simple LINEAR regression part of the specified assignment
+# regressions of eco_status_7 against ecologicalstatus based on all 11
+# data <- na.omit(dataset_MA334)
+plot(dataset_MA334$eco_status_7~dataset_MA334$ecologicalStatus)
+abline(0,1,col="red")
+
+lin_mod <- lm(dataset_MA334$eco_status_7~dataset_MA334$ecologicalStatus)
+abline(lin_mod,col="green")
+
+plot(jitter(fitted(lin_mod)),residuals(lin_mod),xlab="Fitted",ylab="Residuals")
+abline(h=0,col="blue")
+
+qqnorm(residuals(lin_mod))
+qqline(residuals(lin_mod),col="red")
+
+# do the same for each period report and differences 
+dataset_MA334_Y70 <- dataset_MA334%>%filter(period=="Y70")
+lin_mod <- lm(dataset_MA334_Y70$eco_status_7~dataset_MA334_Y70$ecologicalStatus)
+lin_mod$coefficients
+# for later period 
+dataset_MA334_Y00 <- dataset_MA334%>%filter(period=="Y00")
+lin_mod <- lm(dataset_MA334_Y00$eco_status_7~dataset_MA334_Y00$ecologicalStatus)
+lin_mod$coefficients
+
+all <- c(2:12)
+eco_not_selected <- all[!(all%in%eco_selected)]
+mean_selected <- rowMeans(dataset[,eco_selected],na.rm=TRUE) 
+mean_selected
+# mean the 7 columns 
+Na_sum2 <- sum(is.na(is.na(mean_selected))) #check that there are no NAs in mean__selected
+#add in the biodiversity measure which is the mean over 7 taxonomic groups
+dataset_MA334 <- dataset_MA334 %>%
+  mutate(eco_status_4 = mean_selected)
+
+# now MULTI LINEAR regression BD4 against the selected 7 
+
+# Create Training and Test data 
+trainingRowIndex <- sample(1:nrow(dataset_MA334), 0.8*nrow(dataset_MA334))  # row indices for 80% training data
+trainingData <- dataset_MA334[trainingRowIndex, ]  # model training data
+testData  <- dataset_MA334[-trainingRowIndex, ] %>% 
+  na.omit # for test data remove NAs 
+
+# Build the model on training data
+lmMod_train <- lm(eco_status_4~.,
+                  data=trainingData[c(eco_selected_names,"eco_status_4")],
+                  na.action=na.omit,y=TRUE)
+summary (lmMod_train)  # model summary
+cor(lmMod_train$fitted.values,lmMod_train$y) # cor training data 
+Eco_4_Pred <- predict(lmMod_train, testData) # predict to check model on test Data
+cor(Eco_4_Pred,testData$eco_status_4)
+plot(Eco_4_Pred~testData$eco_status_4)
+abline(0,1,col="red")
+
+# mis_fit_to_testData are the residuals for the train model fit to the test data 
+mis_fit_to_testData <- testData$eco_status_4-Eco_4_Pred
+plot(mis_fit_to_testData~Eco_4_Pred) # look for unwanted pattern in residuals
+abline(0,0,col="red")
+qqnorm(mis_fit_to_testData) # check for normality of residuals in prediction
+qqline(mis_fit_to_testData,col="red")
+
+#OPEN ANALYSIS
+BD7_by_location_period <- aggregate(dataset[eco_selected_11], by = dataset[c("dominantLandClass", "period")], FUN = mean)
+BD7_by_location_period
+# Filter for only the two periods of interest
+BD7_Y70 <- BD7_by_location_period[BD7_by_location_period$period == "Y70", ]
+BD7_Y00 <- BD7_by_location_period[BD7_by_location_period$period == "Y00", ]
+
+# Merge the data with the corresponding land classes
+land_classes <- data.frame(
+  dominantLandClass = c("3e", "4e"),
+  LandClass = c("Flat/gently undulating plains, E Anglia/S England","Flat coastal plains, E Anglia/S England"))
+BD7_Y70 <- merge(BD7_Y70, land_classes, by = "dominantLandClass")
+BD7_Y00 <- merge(BD7_Y00, land_classes, by = "dominantLandClass")
+
+# Create a new data frame with the mean BD7 values for each land class and period
+BD7_means <- rbind(
+  data.frame(LandClass = BD7_Y70$LandClass, BD7 = BD7_Y70[, eco_selected_11 ], Period = "Y70"),
+  data.frame(LandClass = BD7_Y00$LandClass, BD7 = BD7_Y00[, eco_selected_11 ], Period = "Y00")
+)
+
+# Remove LandClass column from BD7_means
+BD7_means <- subset(BD7_means, select = -LandClass)
+
+# Melt data for plotting
+BD7_means <- reshape2::melt(BD7_means, id.vars = c("Period"), variable.name = "Taxon", value.name = "Mean")
+
+# Create a box plot of the mean BD7 values for each period
+barplot <- ggplot(BD7_means, aes(x = Period, y = Mean, fill = Taxon)) +
+  geom_boxplot() +
+  ggtitle("Mean BD7 values by species and period") +
+  xlab("Period") + ylab("Mean BD7") +
+  facet_wrap(~Taxon, ncol = 4, scales = "free_y") +
+  scale_fill_manual(values = c("lightblue", "red", "purple", "pink", "orange", "brown","yellow"))
+```
+
+## INTRODUCTION
+
+Conservation biologists and policymakers face significant challenges in quantifying and prioritising biodiversity. Increasing demands on land use, such as food and energy security, as well as housing expansion, are creating a greater need for methods to identify and prioritise regions of 'high' ecological value. There are several techniques based on land cover extent that may be used as a proxy for biodiversity, but they make a number of assumptions and either demonstrate inadequate match to empirical data or have not yet been adequately tested.
+
+  The environmental effects of changing land use on possible development sites are now predicted in Great Britain (GB) using environmental impact assessments (EIAs) and strategic environmental assessments (SEAs). The low priority accorded to biodiversity in general and the assessment's narrow emphasis on a limited group of priority species and habitats are two major flaws. The Biodiversity Action Plan , which defined priority species and priority habitats in GB up to 2010, before these lists became devolved to separate countries, is one example of how threatened species, threatened habitats, and Sites of Special Scientific Interest (SSSI) are used to assess biodiversity.However, because they only represent a small percentage of total biodiversity, they may not accurately reflect the spatial patterns and temporal trends in this 'wider' biodiversity, even though their usage can be useful for prioritising and conservation at the local level. For instance, the needs of species like the Great Crested Newt Triturus cristatus, a species listed as a European Protected Species under the Habitats Directive, may not coincide with those of other species that might profit from specific interventions like the creation of green infrastructure. Reporting on the condition of historically widespread species is critical, especially as they may support important ecological services outside of the narrow selection of officially protected species.
+
+
+## Data Exploration
+
+With macromoths on the x-axis and eco_status_7 on the y-axis, the scatter plot depicts the association between the biodiversity measure (eco_status_7) and the number of macromoths detected in the dataset. These two variables have a 0.82 correlation coefficient, indicating a significant positive relationship.
+
+The plot shows a cluster of locations near 0.8 macromoths and 260000 northing. This could imply that there is a specific habitat or environmental situation that promotes both high biodiversity and high macromoth numbers. More research into this subject may clarify what elements contribute to this tendency.
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=5, fig.height=5}
+
+DE_Correlation_Matrix <- plot(cont_vars$Northing~cont_vars$Macromoths) # a map appears !!!
+
+
+```
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=5, fig.height=5}
+DE_Correlation <- plot(dataset_MA334$eco_status_7~dataset_MA334$Macromoths)
+
+```
+
+## Hypothesis tests
+
+The graph depicts the empirical cumulative distribution functions (ECDF) for two variables from the dataset dataset_MA334, eco_status_7 and ecologicalStatus. The x-axis represents variable values, whereas the y-axis displays ECDF values (Fn(x)).
+
+For each variable, the ecdf() function is used to compute the empirical cumulative distribution function. The green line shows the ECDF for ecologicalStatus, while the red line indicates the ECDF for eco_status_7.
+
+The Kolmogorov-Smirnov test (ks.test()) is then used to determine if the two variables are from the same distribution or not. The test results in a D-statistic value of 0.375 and a very modest p-value (6.695e-06), indicating that we reject the null hypothesis that the two variables come from the same distribution.
+
+The graph shows that the green line (ECDF for eco_status_7) is consistently greater than the red line (ECDF for ecologicalStatus) across a wide range of values. This suggests that eco_status_7 has greater values than ecologicalStatus. The difference between the two ECDFs is most noticeable at the right side of the graph (about x = 0.75). This implies that the eco_status_7 distribution has more high values than the ecologicalStatus distribution.
+
+Overall, the graph and KS test indicate that the two variables are distinct, with eco_status_7 having greater values than ecologicalStatus.
+hist(dataset_MA334_split$BD7_change)  # the distribution of the BD7 change 
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=5, fig.height=5}
+
+plot(BD11_cdf,col="red") #graph
+lines(BD7_cdf,col="green") #graph
+
+```
+
+## Simple linear regression
+
+The scatter plot depicts the association between ecologicalStatus and eco_status_7. Each dot in the graph represents a single observation from the dataset. The horizontal axis (x-axis) represents the variable ecologicalStatus, and the vertical axis (y-axis) represents the variable eco_status_7.
+
+The regression line in the plot illustrates the linear relationship between the two variables.Because the data points do not lie exactly on a straight line, the regression line does not touch the majority of the scattered points, indicating that the relationship between the two variables may be variable. The regression line begins at 0.55 on the x-axis and 0.54 on the y-axis, suggesting that when the ecologicalStatus value is 0.55, the projected value for eco_status_7 is 0.54. Similarly, the regression line terminates at 0.75 on the x-axis and 0.76 on the y-axis, suggesting that when the ecologicalStatus value is 0.75, the projected value for eco_status_7 is 0.76.
+
+The green line represents the best-fitting linear regression line to the data. It traverses the scattered sites and estimates the link between the two variables. The x-axis shows ecologicalStatus values ranging from 0.55 to 0.75, and the y-axis shows eco_status_7 values ranging from 0.50 to 0.76.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=4, fig.height=4}
+plot(dataset_MA334$eco_status_7~dataset_MA334$ecologicalStatus)
+abline(0,1,col="red")
+
+lin_mod <- lm(dataset_MA334$eco_status_7~dataset_MA334$ecologicalStatus)
+abline(lin_mod,col="green")
+```
+
+The residuals (the difference between the observed values and the values predicted by the linear regression model) are plotted against the fitted values (the values predicted by the model) in this code.
+
+The fitted values are shown on the x-axis and range from 0.50 to 0.70 in 0.05 increments. The residuals are shown on the y-axis, and they range from -0.04 to 0.04 in 0.02 increments. The jitter() function is used to add a little amount of random noise to the fitted values, making any patterns in the data easier to notice.
+
+The blue line shows the line of zero residual error and is a horizontal line at y=0. It is useful to understand how far the real residuals stray from the zero error line.
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=4, fig.height=4}
+
+plot(jitter(fitted(lin_mod)),residuals(lin_mod),xlab="Fitted",ylab="Residuals")
+abline(h=0,col="blue")
+
+```
+
+The function qqline() is used to add a reference line to the plot. This line is drawn on the same scale as the x and y axes and aids in identifying departures from normality. In this scenario, the line is coloured red and goes through the scattered points from x-axis -2 to y-axis -0.020, ending at x-axis and y-axis 0.015.
+
+If the data has a normal distribution, the points on the QQ plot should be near to the reference line. If the points stray greatly from the line, it may suggest that the data is not regularly distributed. In this scenario, the residuals appear to follow a reasonably normal distribution, with minor aberrations around the tails.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=4, fig.height=4}
+
+qqnorm(residuals(lin_mod))
+qqline(residuals(lin_mod),col="red")
+```
+
+## Multiple Linear Regression
+
+The code generates a scatter plot comparing the anticipated values Eco_4_Pred to the actual values testData$eco_status_4. The x-axis shows the actual values, and the y-axis shows the expected values. The red line is a reference line with a slope of one and an intercept of zero, indicating a flawless forecast. If the predicted and actual values are exactly correlated, then all of the distributed points will fall on this line.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=4, fig.height=4}
+
+plot(Eco_4_Pred~testData$eco_status_4)
+abline(0,1,col="red")
+
+```
+
+In this code, we plot the model's misfits to the test data against the anticipated values. The x-axis shows the expected values for eco_status_4, and the y-axis shows the misfits, which are the disparities between the predicted and actual values for eco_status_4 in the test data.
+The red line in the plot depicts the ideal fit with no misfits, with a slope of 0 and an intercept of 0. The red line goes through the origin because if the expected and actual values are the same, the misfit is 0. The plot reveals that the misfits are relatively minor and scattered randomly around the horizontal line, indicating that the model fits the test data well.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=4, fig.height=4}
+
+plot(mis_fit_to_testData~Eco_4_Pred) # look for unwanted pattern in residuals
+abline(0,0,col="red")
+
+```
+
+In prediction, this function checks the residuals for normalcy. The qqnorm function is used to generate a normal probability map of the residuals, where the x-axis represents the theoretical quantiles of a normal distribution with mean zero and standard deviation one, and the y-axis represents the residual sample quantiles. The qqline function is used to draw a reference line through the first and third quartiles of the normal distribution.
+
+The figure in this case demonstrates that the residuals are nearly normally distributed, as most of the dots follow the diagonal line. The red line in the centre of the plot indicates that the residuals are roughly regularly distributed.
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=4, fig.height=4}
+
+qqnorm(mis_fit_to_testData) # check for normality of residuals in prediction
+qqline(mis_fit_to_testData,col="red")
+
+```
+
+## Open Analysis
+
+The code generates seven box plots, one for each taxon, with the x-axis indicating the two periods of interest (Y70 and Y00) and the y-axis representing the mean BD7 value for each taxon for those times. The fill colour is used to distinguish between the various taxon categories in the plot.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE, fig.width=8, fig.height=7}
+barplot
+```
+
+## Conclusion
+
+According to the findings, there appears to be a considerable difference in biodiversity based on 7 and 11 taxonomic groups. The t-test result indicates that the mean difference in biodiversity between the two groups is statistically significant. Furthermore, the Kolmogorov test result indicates that the biodiversity distributions based on 7 and 11 taxonomic groups are not the same.
+
+The correlation matrix analysis indicates some strong relationships between the selected variables. For example, there is a positive link between biodiversity and macromoths, which suggests that macromoths could be a useful predictor of biodiversity.
+
+Further investigation and analysis may be required to properly comprehend the links and patterns in the data.
+
+##References
+
+1. https://moodle.essex.ac.uk/course/view.php?id=15074
+2. https://moodle.essex.ac.uk/pluginfile.php/2009058/mod_folder/content/0/Materials/Journal%20of%20Applied%20Ecology%20-%202016%20-%20Dyer%20-%20Developing%20a%20biodiversity%E2%80%90based%20indicator%20for%20large%E2%80%90scale%20environmental.pdf
